@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>douzi Tool</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 10px;
+        }
+
+        .area-title {
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        #searchArea,
+        #viewArea {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+
+        #searchInput {
+            width: 1200px;
+            height: 20px;
+        }
+
+        #searchBtn,
+        #refreshBtn {
+            padding: 2px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* 検索結果アイテム */
+        .result-item {
+            width: 200px;
+            margin: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            padding: 5px;
+            background: #fff;
+            position: relative;
+        }
+
+        /* 削除ボタン */
+        .remove-result-btn {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            width: 24px;
+            height: 24px;
+            text-align: center;
+            line-height: 24px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            display: none;
+            z-index: 10;
+        }
+
+        /* ホバー時に削除ボタンを表示 */
+        .result-item:hover .remove-result-btn {
+            display: block;
+        }
+
+        #searchResults img {
+            width: 100%;
+            height: auto;
+        }
+
+        .draggable {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            border: 2px solid #444;
+            background: #000;
+        }
+
+        .drag-bar {
+            height: 20px;
+            background: #444;
+            cursor: move;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .close-btn {
+            color: #fff;
+            margin-right: 5px;
+            cursor: pointer;
+        }
+
+        .resizer {
+            width: 15px;
+            height: 15px;
+            background: #444;
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            cursor: se-resize;
+        }
+
+        #viewArea {
+            width: 98%;
+            height: 90vh;
+            position: relative;
+            background: #f5f5f5;
+        }
+
+        #viewAreaResizer {
+            width: 15px;
+            height: 15px;
+            background: #888;
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            cursor: se-resize;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>複数画面動画視聴ツール</h2>
+
+    <div id="searchArea">
+        <div class="area-title">検索</div>
+        <input id="searchInput" type="text" placeholder="動画を検索">
+        <button id="searchBtn">検索</button>
+
+        <button id="refreshBtn" style="display:none;">次の6件</button>
+
+        <div id="searchResults" style="display:flex;flex-wrap:wrap;"></div>
+    </div>
+
+    <div id="viewArea">
+        <div class="area-title"></div>
+        <div id="viewAreaResizer"></div>
+    </div>
+
+    <script>
+        const MAX_DISPLAY_RESULTS = 24;
+        const apiKey = "AIzaSyDhFwt0A0SizY94J8Dl3mVKjUgleJXJ7i4"; // ※提出時は空欄にする
+
+        let nextPageToken = "";
+        let lastQuery = "";
+        let isSearching = false;
+
+        // 動画の待機列（バッファ）
+        let videoBuffer = [];
+
+        let zIndexCounter = 1000;
+
+        // --- 動画をずらして表示するための位置カウンター ---
+        let cascadeOffset = 0;
+
+        const searchButton = document.getElementById("searchBtn");
+        const refreshButton = document.getElementById("refreshBtn");
+        const searchInput = document.getElementById("searchInput");
+        const searchResults = document.getElementById("searchResults");
+
+        const viewArea = document.getElementById('viewArea');
+        const viewAreaResizer = document.getElementById('viewAreaResizer');
+
+
+        // --- APIからデータを取ってきてバッファに貯める関数 ---
+        async function fetchVideosToBuffer() {
+            if (!lastQuery) return;
+
+            const searchTerm = lastQuery;
+            const url = new URL("https://www.googleapis.com/youtube/v3/search");
+            url.search = new URLSearchParams({
+                part: "snippet",
+                type: "video",
+                videoEmbeddable: "true",
+                maxResults: 20,
+                q: searchTerm,
+                key: apiKey,
+                pageToken: nextPageToken
+            });
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (!data.items) return;
+
+                data.items.forEach(item => {
+                    if (item.id.kind !== 'youtube#video') return;
+                    if (item.snippet.title.toLowerCase().includes("#shorts")) return;
+                    if (!item.id.videoId) return;
+
+                    videoBuffer.push(item);
+                });
+
+                nextPageToken = data.nextPageToken || "";
+
+            } catch (err) {
+                console.error("検索エラー:", err);
+            }
+        }
+
+
+        // --- 指定した数だけ動画を画面に追加する関数 ---
+        async function addVideos(count) {
+            if (isSearching) return;
+            isSearching = true;
+
+            let added = 0;
+
+            while (added < count) {
+                if (searchResults.children.length >= MAX_DISPLAY_RESULTS) {
+                    searchResults.removeChild(searchResults.firstChild);
+                }
+
+                if (videoBuffer.length === 0) {
+                    if (added > 0 && !nextPageToken) break;
+                    await fetchVideosToBuffer();
+                    if (videoBuffer.length === 0) break;
+                }
+
+                const item = videoBuffer.shift();
+                createAndAppendVideoBox(item);
+                added++;
+            }
+
+            refreshButton.style.display = nextPageToken || videoBuffer.length > 0 ? "inline" : "none";
+            isSearching = false;
+        }
+
+
+        // --- 動画ボックスを作成して表示する関数 ---
+        function createAndAppendVideoBox(item) {
+            const videoId = item.id.videoId;
+            const title = item.snippet.title;
+            const thumbnail = item.snippet.thumbnails.medium.url;
+
+            const videoBox = document.createElement("div");
+            videoBox.className = "result-item";
+
+            const img = document.createElement("img");
+            img.src = thumbnail;
+
+            const titleElement = document.createElement("p");
+            titleElement.textContent = title;
+            titleElement.style.fontSize = "12px";
+            titleElement.style.margin = "5px 0 0 0";
+            titleElement.style.overflow = "hidden";
+            titleElement.style.display = "-webkit-box";
+            titleElement.style.webkitBoxOrient = "vertical";
+            titleElement.style.webkitLineClamp = "2";
+
+            const removeBtn = document.createElement("span");
+            removeBtn.className = "remove-result-btn";
+            removeBtn.innerText = "×";
+
+            removeBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                searchResults.removeChild(videoBox);
+                addVideos(1);
+            });
+
+            videoBox.addEventListener("click", () => {
+                addToView(videoId);
+            });
+
+            videoBox.appendChild(removeBtn);
+            videoBox.appendChild(img);
+            videoBox.appendChild(titleElement);
+            searchResults.appendChild(videoBox);
+        }
+
+
+        // --- イベントリスナー ---
+
+        searchButton.addEventListener("click", async () => {
+            const query = searchInput.value.trim();
+
+            if (!query) {
+                searchResults.innerHTML = "";
+                refreshButton.style.display = "none";
+                lastQuery = "";
+                nextPageToken = "";
+                videoBuffer = [];
+                return;
+            }
+
+            if (isSearching) return;
+
+            lastQuery = query;
+            nextPageToken = "";
+            videoBuffer = [];
+            searchResults.innerHTML = "";
+
+            await addVideos(6);
+        });
+
+        refreshButton.addEventListener("click", async () => {
+            await addVideos(6);
+        });
+
+
+        // --- 視聴エリア関連 ---
+
+        function addToView(videoId) {
+            const area = document.getElementById('viewArea');
+            const container = document.createElement('div');
+            container.classList.add('draggable');
+
+            // 初期サイズの設定
+            const initWidth = 320;
+            const initHeight = 200;
+
+            container.style.width = initWidth + 'px';
+            container.style.height = initHeight + 'px';
+
+            // --- 中央位置の計算 ---
+            // エリアの中心座標を計算
+            const centerX = (area.clientWidth / 2) - (initWidth / 2);
+            const centerY = (area.clientHeight / 2) - (initHeight / 2);
+
+            // --- ずらし（カスケード）処理 ---
+            // 中心座標に、現在の「ずらし量」を足す
+            let finalX = centerX + cascadeOffset;
+            let finalY = centerY + cascadeOffset;
+
+            // ずらし量を更新（次は30px右下に）
+            cascadeOffset += 30;
+
+            // もしずらしすぎて画面外に行きそうなら、リセットする（適当な値でループ）
+            if (cascadeOffset > 150) {
+                cascadeOffset = 0;
+            }
+
+            container.style.left = finalX + 'px';
+            container.style.top = finalY + 'px';
+            // -----------------------------
+
+            container.style.zIndex = zIndexCounter++;
+            container.addEventListener('mousedown', () => {
+                container.style.zIndex = zIndexCounter++;
+            });
+
+            const bar = document.createElement('div');
+            bar.classList.add('drag-bar');
+            const closeBtn = document.createElement('span');
+            closeBtn.classList.add('close-btn');
+            closeBtn.innerText = '×';
+            closeBtn.onclick = () => area.removeChild(container);
+            bar.appendChild(closeBtn);
+
+            const frame = document.createElement('iframe');
+            frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1`;
+            frame.style.flex = '1';
+            frame.style.border = 'none';
+
+            container.appendChild(bar);
+            container.appendChild(frame);
+            const resizer = document.createElement('div');
+            resizer.classList.add('resizer');
+            container.appendChild(resizer);
+            area.appendChild(container);
+            makeDrag(container, bar);
+            makeResize(container, resizer);
+        }
+
+        function makeDrag(elem, handle) {
+            let offsetX = 0, offsetY = 0;
+            handle.addEventListener('mousedown', e => {
+                e.preventDefault();
+                offsetX = e.clientX - elem.offsetLeft;
+                offsetY = e.clientY - elem.offsetTop;
+                elem.style.zIndex = zIndexCounter++;
+                const all = document.querySelectorAll('.draggable');
+                all.forEach(v => v.style.pointerEvents = 'none');
+                handle.style.pointerEvents = 'auto';
+                const moveHandler = e => {
+                    let newX = e.clientX - offsetX;
+                    let newY = e.clientY - offsetY;
+                    const area = document.getElementById('viewArea');
+                    elem.style.left = Math.min(Math.max(0, newX), area.clientWidth - elem.offsetWidth) + 'px';
+                    elem.style.top = Math.min(Math.max(0, newY), area.clientHeight - elem.offsetHeight) + 'px';
+                };
+                const upHandler = () => {
+                    document.removeEventListener('mousemove', moveHandler);
+                    document.removeEventListener('mouseup', upHandler);
+                    all.forEach(v => v.style.pointerEvents = 'auto');
+                };
+                document.addEventListener('mousemove', moveHandler);
+                document.addEventListener('mouseup', upHandler);
+            });
+        }
+
+        function makeResize(container, resizer) {
+            resizer.addEventListener('mousedown', e => {
+                e.stopPropagation(); e.preventDefault();
+                container.style.zIndex = zIndexCounter++;
+                const all = document.querySelectorAll('.draggable');
+                all.forEach(v => v.style.pointerEvents = 'none');
+                resizer.style.pointerEvents = 'auto';
+
+                const startX = e.clientX, startY = e.clientY;
+                const startWidth = container.offsetWidth, startHeight = container.offsetHeight;
+
+                const moveHandler = e => {
+                    const area = document.getElementById('viewArea');
+                    let newWidth = startWidth + (e.clientX - startX);
+                    let newHeight = startHeight + (e.clientY - startY);
+                    newWidth = Math.max(100, Math.min(newWidth, area.clientWidth - container.offsetLeft));
+                    newHeight = Math.max(80, Math.min(newHeight, area.clientHeight - container.offsetTop));
+                    container.style.width = newWidth + 'px';
+                    container.style.height = newHeight + 'px';
+                };
+
+                const upHandler = () => {
+                    document.removeEventListener('mousemove', moveHandler);
+                    document.removeEventListener('mouseup', upHandler);
+                    all.forEach(v => v.style.pointerEvents = 'auto');
+                };
+
+                document.addEventListener('mousemove', moveHandler);
+                document.addEventListener('mouseup', upHandler);
+            });
+        }
+
+        viewAreaResizer.addEventListener('mousedown', e => {
+            e.preventDefault();
+            const startX = e.clientX, startY = e.clientY;
+            const startWidth = viewArea.offsetWidth, startHeight = viewArea.offsetHeight;
+            const moveHandler = e => {
+                let newWidth = startWidth + (e.clientX - startX);
+                let newHeight = startHeight + (e.clientY - startY);
+                newWidth = Math.max(300, newWidth);
+                newHeight = Math.max(200, newHeight);
+                viewArea.style.width = newWidth + 'px';
+                viewArea.style.height = newHeight + 'px';
+            };
+            const upHandler = () => {
+                document.removeEventListener('mousemove', moveHandler);
+                document.removeEventListener('mouseup', upHandler);
+            };
+            document.addEventListener('mousemove', moveHandler);
+            document.addEventListener('mouseup', upHandler);
+        });
+
+    </script>
+
+</body>
+
+</html>
