@@ -363,6 +363,7 @@
 
             const frame = document.createElement('iframe');
             frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1`;
+            frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
             frame.style.flex = '1';
             frame.style.border = 'none';
 
