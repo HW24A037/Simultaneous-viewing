@@ -137,14 +137,16 @@
 
     <div id="searchArea">
         <div class="area-title">検索</div>
-        
-        <input id="searchInput" type="text" placeholder="動画を検索">
-        <button id="searchBtn">検索</button>
-        <button id="refreshBtn" style="display:none;">次の6件</button>
-        
-        <div id="loadingText" style="display:none; margin-top:5px; font-weight:bold; color:#666;">検索中...</div>
 
-        <div id="searchResults" style="display:flex;flex-wrap:wrap;"></div>
+        <div style="display: flex; align-items: center;">
+            <input id="searchInput" type="text" placeholder="動画を検索">
+            <button id="searchBtn" style="margin-left: 5px;">検索</button>
+            <button id="refreshBtn" style="display:none; margin-left: 5px;">次の6件</button>
+        </div>
+
+        <div id="loadingText" style="display:none; margin-top: 5px; font-weight:bold; color:#666;">検索中...</div>
+
+        <div id="searchResults" style="display:flex; flex-wrap:wrap; margin-top: 10px;"></div>
     </div>
 
     <div id="viewArea">
