@@ -141,7 +141,7 @@
         <button id="searchBtn">検索</button>
 
         <button id="refreshBtn" style="display:none;">次の6件</button>
-
+        <span id="loadingText" style="display:none; margin-left:10px; font-weight:bold; color:#666;">検索中...</span>
         <div id="searchResults" style="display:flex;flex-wrap:wrap;"></div>
     </div>
 
@@ -218,6 +218,9 @@
             if (isSearching) return;
             isSearching = true;
 
+            const loadingText = document.getElementById("loadingText");
+    if(loadingText) loadingText.style.display = "inline";
+
             let added = 0;
 
             while (added < count) {
@@ -237,6 +240,7 @@
             }
 
             refreshButton.style.display = nextPageToken || videoBuffer.length > 0 ? "inline" : "none";
+            if(loadingText) loadingText.style.display = "none";
             isSearching = false;
         }
 
